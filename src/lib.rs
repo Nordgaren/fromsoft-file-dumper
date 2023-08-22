@@ -14,7 +14,7 @@ use fisherman::scanner::signature::Signature;
 use fisherman::scanner::simple_scanner::SimpleScanner;
 use fisherman::util::{get_module_slice, get_relative_pointer};
 use crate::dinput8::init_dinput8;
-use windows::Win32::Foundation::{HANDLE, HMODULE, MAX_PATH};
+use windows::Win32::Foundation::{HMODULE, MAX_PATH};
 #[cfg(feature = "Console")]
 use windows::Win32::System::Console::{AllocConsole, AttachConsole};
 use windows::Win32::System::LibraryLoader::{GetModuleFileNameA, GetModuleHandleA};
@@ -26,9 +26,6 @@ use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::*;
-use windows::imp::{CloseHandle, WaitForSingleObject};
-use windows::Win32::Foundation;
-use windows::Win32::System::Threading::{GetCurrentProcess, INFINITE, RegisterWaitForSingleObject, WAITORTIMERCALLBACK, WT_EXECUTEONLYONCE};
 use crate::path_processor::{ARCHIVES, Game, save_dump};
 use crate::path_processor::Game::{ArmoredCore6, EldenRing};
 
@@ -65,23 +62,6 @@ pub extern "stdcall" fn DllMain(hinstDLL: isize, dwReason: u32, lpReserved: *mut
         _ => 0,
     }
 }
-
-unsafe extern "system" fn callback(param0: *mut ::core::ffi::c_void, param1: Foundation::BOOLEAN) -> () {
-    save_dump();
-}
-
-unsafe fn init_exit_callback() {
-    let mut handle = HANDLE(0);
-    RegisterWaitForSingleObject(&mut handle, GetCurrentProcess(), Some(callback), None,INFINITE , WT_EXECUTEONLYONCE);
-    // let t =std::thread::spawn(|| unsafe {
-    //     let handle = GetCurrentProcess().0;
-    //     WaitForSingleObject(
-    //         handle, INFINITE,
-    //     );
-    //     CloseHandle(handle);
-    // });
-}
-
 
 pub fn init_logs(file: &str) {
     let stdout = ConsoleAppender::builder()
