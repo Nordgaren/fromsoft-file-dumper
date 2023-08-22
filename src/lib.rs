@@ -1,33 +1,33 @@
 #![feature(naked_functions)]
 #![allow(non_snake_case)]
 
-mod dinput8;
-mod util;
 mod HashableString;
-mod hooks;
+mod dinput8;
 mod dl_string;
+mod hooks;
 mod path_processor;
+mod util;
 
-use std::fs;
+use crate::dinput8::init_dinput8;
+use crate::hooks::{get_file_hook, GET_FILE_ORIGINAL};
+use crate::path_processor::Game::{ArmoredCore6, EldenRing};
+use crate::path_processor::{save_dump, Game, ARCHIVES};
 use fisherman::hook::builder::HookBuilder;
 use fisherman::scanner::signature::Signature;
 use fisherman::scanner::simple_scanner::SimpleScanner;
 use fisherman::util::{get_module_slice, get_relative_pointer};
-use crate::dinput8::init_dinput8;
-use windows::Win32::Foundation::{HMODULE, MAX_PATH};
-#[cfg(feature = "Console")]
-use windows::Win32::System::Console::{AllocConsole, AttachConsole};
-use windows::Win32::System::LibraryLoader::{GetModuleFileNameA, GetModuleHandleA};
-use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
-use crate::hooks::{get_file_hook, GET_FILE_ORIGINAL};
 use log::*;
 use log4rs::append::console::ConsoleAppender;
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::*;
-use crate::path_processor::{ARCHIVES, Game, save_dump};
-use crate::path_processor::Game::{ArmoredCore6, EldenRing};
+use std::fs;
+use windows::Win32::Foundation::{HMODULE, MAX_PATH};
+#[cfg(feature = "Console")]
+use windows::Win32::System::Console::{AllocConsole, AttachConsole};
+use windows::Win32::System::LibraryLoader::{GetModuleFileNameA, GetModuleHandleA};
+use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
 
 pub static mut ROOT_DIR: String = String::new();
 pub static SAVE_PATH: &str = "./log/file_paths.txt";
@@ -95,13 +95,9 @@ pub fn init_logs(file: &str) {
     log_panics::init();
 }
 
-
 unsafe fn init(hinstDLL: isize) -> String {
     let mut buffer = [0u8; MAX_PATH as usize + 1];
-    let name_size = GetModuleFileNameA(
-        HMODULE(hinstDLL),
-        &mut buffer,
-    ) as usize;
+    let name_size = GetModuleFileNameA(HMODULE(hinstDLL), &mut buffer) as usize;
     let name = &buffer[..name_size];
     let name_str = std::str::from_utf8(name).expect("Could not parse name from GetModuleFileNameA");
     if name_str.to_lowercase().ends_with("dinput8.dll") {
@@ -110,7 +106,6 @@ unsafe fn init(hinstDLL: isize) -> String {
 
     name_str.to_string()
 }
-
 
 unsafe fn init_hooks(name: &str) {
     let mut end = name.rfind("\\");
@@ -136,12 +131,7 @@ unsafe fn init_hooks(name: &str) {
     let addr = get_relative_pointer(callsite, 1, 5) as *const u8 as usize;
 
     HookBuilder::new()
-        .add_inline_hook(
-            addr,
-            get_file_hook as usize,
-            &mut GET_FILE_ORIGINAL,
-            None,
-        )
+        .add_inline_hook(addr, get_file_hook as usize, &mut GET_FILE_ORIGINAL, None)
         .build();
 }
 
@@ -159,7 +149,7 @@ fn get_game() -> Game {
         return EldenRing;
     }
 
-    if fs::read(format!("./{ARMORED_CORE_EXE}")).is_ok()   {
+    if fs::read(format!("./{ARMORED_CORE_EXE}")).is_ok() {
         return ArmoredCore6;
     }
 
@@ -168,8 +158,9 @@ fn get_game() -> Game {
 
 fn get_function_signature(game: Game) -> Signature {
     match game {
-        EldenRing => Signature::from_ida_pattern(GET_FILE_ER_SIGNATURE).expect("Could not parse Elden Ring AoB"),
-        ArmoredCore6 => Signature::from_ida_pattern(GET_FILE_AC_SIGNATURE).expect("Could not parse Armored Core 6 AoB"),
+        EldenRing => Signature::from_ida_pattern(GET_FILE_ER_SIGNATURE)
+            .expect("Could not parse Elden Ring AoB"),
+        ArmoredCore6 => Signature::from_ida_pattern(GET_FILE_AC_SIGNATURE)
+            .expect("Could not parse Armored Core 6 AoB"),
     }
 }
-

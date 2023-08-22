@@ -5,7 +5,7 @@ pub struct HashableString {
     pub string: *const u16,
     pub hash: u32,
     pub needs_hashing: bool,
-    pub unk0xd: [u8;0x3],
+    pub unk0xd: [u8; 0x3],
 }
 #[repr(C)]
 pub struct FD4ResCap {
@@ -22,8 +22,8 @@ pub struct FD4BasicHashString {
 
 #[cfg(test)]
 mod tests {
-    use std::mem::size_of;
     use crate::HashableString::{FD4BasicHashString, FD4ResCap, HashableString};
+    use std::mem::size_of;
 
     #[test]
     pub fn test() {

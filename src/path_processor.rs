@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
-use std::fs;
-use std::path::PathBuf;
+use crate::SAVE_PATH;
+use lazy_static::lazy_static;
 use log::warn;
 use regex::Regex;
-use lazy_static::lazy_static;
-use crate::SAVE_PATH;
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 #[derive(Copy, Clone)]
 pub enum Game {
@@ -14,7 +14,7 @@ pub enum Game {
 }
 
 lazy_static! {
-pub static ref REGEX: Regex = Regex::new(r"^([a-zA-Z0-9]*):([^:]*)$").unwrap();
+    pub static ref REGEX: Regex = Regex::new(r"^([a-zA-Z0-9]*):([^:]*)$").unwrap();
 }
 
 pub static mut FILES: OnceLock<Mutex<HashMap<String, Vec<String>>>> = OnceLock::new();
@@ -56,8 +56,8 @@ pub unsafe fn process_file_path(str: String) {
         }
         None => {
             warn!("Failed to match: {str}");
-            return
-        },
+            return;
+        }
     };
 }
 
@@ -95,11 +95,11 @@ pub fn add_to_hashmap(archive: &String, line: &str, hashmap: &mut HashMap<String
 
 pub unsafe fn save_dump() {
     let path = PathBuf::from(SAVE_PATH);
-    let folder_path = path.parent()
+    let folder_path = path
+        .parent()
         .expect(&format!("Could not parse path {SAVE_PATH}"));
 
-    fs::create_dir_all(folder_path).
-        expect(&format!("Could not create path {folder_path:?}"));
+    fs::create_dir_all(folder_path).expect(&format!("Could not create path {folder_path:?}"));
 
     let mut hashmap = match FILES.get() {
         Some(h) => h.lock().unwrap(),
@@ -120,12 +120,13 @@ pub unsafe fn save_dump() {
 
 #[cfg(test)]
 mod tests {
-    use crate::path_processor::{FILES, init_hashmap, save_dump};
+    use crate::path_processor::{init_hashmap, save_dump, FILES};
 
     #[test]
     fn save_hashmap() {
         unsafe {
-            let hashmap = init_hashmap(r"G:\Steam\steamapps\common\ELDEN RING\Game\dump\file_paths.txt");
+            let hashmap =
+                init_hashmap(r"G:\Steam\steamapps\common\ELDEN RING\Game\dump\file_paths.txt");
             FILES.set(hashmap).unwrap();
 
             save_dump();
