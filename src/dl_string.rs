@@ -50,7 +50,7 @@ impl DLWString {
         std::slice::from_raw_parts(self.get_string_ptr(), self.length)
     }
     pub unsafe fn get_string_ptr(&self) -> *const u16 {
-        if self.length >= 8 {
+        if self.capacity >= 8 {
             return self.string.ptr;
         }
 

@@ -2,14 +2,11 @@
 #![allow(non_snake_case)]
 
 mod HashableString;
-mod dinput8;
 mod dl_string;
 mod hooks;
 mod path_processor;
-mod util;
 
-use crate::dinput8::init_dinput8;
-use crate::hooks::{get_file_hook, GET_FILE_ORIGINAL};
+use crate::hooks::{get_file_hook, hash_path_hook, HASH_PATH_ORIGINAL, hash_path_two_hook, HASH_PATH_TWO_ORIGINAL};
 use crate::path_processor::Game::{ArmoredCore6, EldenRing};
 use crate::path_processor::{save_dump, Game, ARCHIVES};
 use fisherman::hook::builder::HookBuilder;
@@ -35,7 +32,7 @@ pub static LOG_PATH: &str = "log/file-logger.log";
 static ELDEN_RING_EXE: &str = "eldenring.exe";
 static ARMORED_CORE_EXE: &str = "armoredcore6.exe";
 static GET_FILE_ER_SIGNATURE: &str = "E8 ?? ?? ?? ?? 48 83 7B 20 08 48 8D 4B 08 72 03 48 8B 09 4C 8B 4B 18 41 b8 05 00 00 00 4D 3B C8";
-static GET_FILE_AC_SIGNATURE: &str = "E8 ?? ?? ?? ?? 48 83 7B 20 08 48 8D 4B 08 72 03 48 8B 09 4C 8B 4B 18 41 b8 05 00 00 00 4D 3B C8";
+static GET_FILE_AC_SIGNATURE: &str = "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 30 48 8b da 49 8b f1 48 83 c2 08 48 8b f9 48 83 7a 18 08";
 
 #[no_mangle]
 #[allow(unused)]
@@ -100,10 +97,6 @@ unsafe fn init(hinstDLL: isize) -> String {
     let name_size = GetModuleFileNameA(HMODULE(hinstDLL), &mut buffer) as usize;
     let name = &buffer[..name_size];
     let name_str = std::str::from_utf8(name).expect("Could not parse name from GetModuleFileNameA");
-    if name_str.to_lowercase().ends_with("dinput8.dll") {
-        init_dinput8();
-    }
-
     name_str.to_string()
 }
 
@@ -122,24 +115,33 @@ unsafe fn init_hooks(name: &str) {
     let game = get_game();
 
     set_archives(game);
+    let module_slice = get_module_slice(base);
     let signature = get_function_signature(game);
     let offset = SimpleScanner
-        .scan(get_module_slice(base), &signature)
+        .scan(module_slice, &signature)
         .expect("Could not find signature.");
 
     let callsite = base as isize + offset as isize;
     let addr = get_relative_pointer(callsite, 1, 5) as *const u8 as usize;
 
+    let signature2 = Signature::from_ida_pattern("40 55 57 48 8b ec 48 83 ec 68").unwrap();
+    let offset2 = SimpleScanner
+        .scan(module_slice, &signature2)
+        .expect("Could not find signature.");
+
+    let callsite2 = base as isize + offset as isize;
+
     HookBuilder::new()
-        .add_inline_hook(addr, get_file_hook as usize, &mut GET_FILE_ORIGINAL, None)
+        .add_inline_hook(callsite as usize, hash_path_hook as usize, &mut HASH_PATH_ORIGINAL, None)
+        .add_inline_hook(callsite2 as usize, hash_path_two_hook as usize, &mut HASH_PATH_TWO_ORIGINAL, None)
         .build();
 }
 
 fn set_archives(game: Game) {
     unsafe {
         match game {
-            EldenRing => ARCHIVES = &["data0", "data1", "data2", "data3", "sd\\sd"],
-            ArmoredCore6 => ARCHIVES = &["data0", "data1", "data2", "data3", "sd\\sd"],
+            EldenRing => ARCHIVES = &["data0", "data1", "data2", "data3", "sd"],
+            ArmoredCore6 => ARCHIVES = &["data0", "data1", "data2", "data3", "sd"],
         }
     }
 }

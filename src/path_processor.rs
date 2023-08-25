@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
+use crate::dl_string::{AllocatedDLWString, DLWStringUnion};
 
 #[derive(Copy, Clone)]
 pub enum Game {
