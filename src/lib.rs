@@ -129,7 +129,7 @@ unsafe fn init_hooks(name: &str) {
         .scan(module_slice, &signature2)
         .expect("Could not find signature.");
 
-    let callsite2 = base as isize + offset as isize;
+    let callsite2 = base as isize + offset2 as isize;
 
     HookBuilder::new()
         .add_inline_hook(callsite as usize, hash_path_hook as usize, &mut HASH_PATH_ORIGINAL, None)

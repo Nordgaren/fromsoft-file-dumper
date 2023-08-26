@@ -30,6 +30,7 @@ unsafe fn get_hashmap_mut() -> &'static mut Mutex<HashMap<String, Vec<String>>> 
 }
 
 pub static mut ARCHIVES: &[&str] = &[];
+
 pub unsafe fn process_file_path(str: String) {
     let hashmap = get_hashmap_mut().get_mut().unwrap();
     let re = &REGEX;
@@ -84,6 +85,26 @@ pub unsafe fn init_hashmap(path: &str) -> Mutex<HashMap<String, Vec<String>>> {
     return Mutex::new(hashmap);
 }
 
+pub unsafe fn merge_dicts(path: &str) {
+    let mut hashmap = FILES.get_mut().unwrap().get_mut().unwrap();
+
+    match fs::read_to_string(path) {
+        Ok(f) => {
+            let lines = f.lines();
+            let mut archive = "".to_string();
+            for line in lines {
+                if line.starts_with('#') {
+                    archive = line[1..].to_string();
+                    continue;
+                }
+
+                add_to_hashmap(&archive, line, hashmap);
+            }
+        }
+        Err(e) => warn!("file list not found: {e}"),
+    };
+}
+
 pub fn add_to_hashmap(archive: &String, line: &str, hashmap: &mut HashMap<String, Vec<String>>) {
     match hashmap.get_mut(archive) {
         Some(v) => v.push(line.to_string()),
@@ -107,21 +128,30 @@ pub unsafe fn save_dump() {
         None => return,
     };
     let mut string = String::new();
+    let mut sd = String::new();
     for (key, val) in hashmap.iter_mut() {
         val.sort();
         val.dedup();
 
+        if key == "sd" {
+            sd.push_str(&format!("#{}\n", key));
+            sd.push_str(&val.join("\n"));
+            sd.push('\n');
+            continue;
+        }
         string.push_str(&format!("#{}\n", key));
         string.push_str(&val.join("\n"));
         string.push('\n');
     }
 
+    string.push_str(&sd);
     fs::write(SAVE_PATH, string).unwrap();
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::path_processor::{init_hashmap, save_dump, FILES};
+    use std::fs;
+    use crate::path_processor::{init_hashmap, save_dump, FILES, merge_dicts};
 
     #[test]
     fn save_hashmap() {
@@ -130,6 +160,22 @@ mod tests {
                 init_hashmap(r"G:\Steam\steamapps\common\ELDEN RING\Game\dump\file_paths.txt");
             FILES.set(hashmap).unwrap();
 
+            save_dump();
+        }
+    }
+
+    #[test]
+    fn merge_hashmap() {
+        unsafe {
+            let hashmap =
+                init_hashmap(r".\dumps\file_paths.txt");
+            FILES.set(hashmap).unwrap();
+
+            let files = fs::read_dir(r".\dumps\new\").unwrap();
+
+            for file in files {
+                merge_dicts(file.unwrap().path().to_str().unwrap());
+            }
             save_dump();
         }
     }
