@@ -8,7 +8,7 @@ mod path_processor;
 
 use crate::hooks::{get_file_hook, hash_path_hook, HASH_PATH_ORIGINAL, hash_path_two_hook, HASH_PATH_TWO_ORIGINAL};
 use crate::path_processor::Game::{ArmoredCore6, EldenRing};
-use crate::path_processor::{save_dump, Game, ARCHIVES};
+use crate::path_processor::{save_dump, Game, ARCHIVES, process_file_paths};
 use fisherman::hook::builder::HookBuilder;
 use fisherman::scanner::signature::Signature;
 use fisherman::scanner::simple_scanner::SimpleScanner;
@@ -19,7 +19,9 @@ use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::*;
-use std::fs;
+use std::{fs, thread};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use windows::Win32::Foundation::{HMODULE, MAX_PATH};
 #[cfg(feature = "Console")]
 use windows::Win32::System::Console::{AllocConsole, AttachConsole};
@@ -34,6 +36,11 @@ static ARMORED_CORE_EXE: &str = "armoredcore6.exe";
 static GET_FILE_ER_SIGNATURE: &str = "E8 ?? ?? ?? ?? 48 83 7B 20 08 48 8D 4B 08 72 03 48 8B 09 4C 8B 4B 18 41 b8 05 00 00 00 4D 3B C8";
 static GET_FILE_AC_SIGNATURE: &str = "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 30 48 8b da 49 8b f1 48 83 c2 08 48 8b f9 48 83 7a 18 08";
 
+static MINUTE: u64 = 60;
+static MINUTES: u64 = 5;
+static SLEEP_DURATION: Duration = Duration::from_secs(MINUTE * MINUTES);
+static END: AtomicBool = AtomicBool::new(false);
+
 #[no_mangle]
 #[allow(unused)]
 pub extern "stdcall" fn DllMain(hinstDLL: isize, dwReason: u32, lpReserved: *mut usize) -> i32 {
@@ -47,17 +54,33 @@ pub extern "stdcall" fn DllMain(hinstDLL: isize, dwReason: u32, lpReserved: *mut
             init_logs(LOG_PATH);
             let path = init(hinstDLL);
             init_hooks(&path);
+            init_loop();
             //init_exit_callback();
             1
         },
         DLL_PROCESS_DETACH => {
             unsafe {
+                END.store(true, Ordering::Relaxed);
+                process_file_paths();
                 save_dump();
             }
             1
         }
         _ => 0,
     }
+}
+
+unsafe fn init_loop() {
+    thread::spawn(|| {
+        loop {
+            thread::sleep(SLEEP_DURATION);
+            if END.load(Ordering::Relaxed) {
+                break;
+            }
+            process_file_paths();
+            save_dump();
+        }
+    });
 }
 
 pub fn init_logs(file: &str) {

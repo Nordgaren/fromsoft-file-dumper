@@ -5,7 +5,7 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{LockResult, Mutex, OnceLock, PoisonError};
 use crate::dl_string::{AllocatedDLWString, DLWStringUnion};
 
 #[derive(Copy, Clone)]
@@ -18,11 +18,29 @@ lazy_static! {
     pub static ref REGEX: Regex = Regex::new(r"^([a-zA-Z0-9]*):([^:]*)$").unwrap();
 }
 
-pub static mut FILES: OnceLock<Mutex<HashMap<String, Vec<String>>>> = OnceLock::new();
+pub static mut STRINGS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+unsafe fn get_vec_mut() -> &'static mut Mutex<Vec<String>> {
+    if let Some(vec) = STRINGS.get_mut() {
+        return vec;
+    }
 
-unsafe fn get_hashmap_mut() -> &'static mut Mutex<HashMap<String, Vec<String>>> {
-    if let Some(array) = FILES.get_mut() {
-        return array;
+    STRINGS.get_or_init(|| Mutex::new(vec![]));
+    return STRINGS.get_mut().unwrap();
+}
+
+
+pub unsafe fn add_to_vector(string: String) {
+    let vec = get_vec_mut().get_mut().unwrap();
+    #[cfg(feature = "Console")]
+    println!("{string}");
+    vec.push(string);
+}
+
+pub static mut FILES: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
+
+unsafe fn get_hashmap_mut() -> &'static mut HashMap<String, Vec<String>> {
+    if let Some(hashmap) = FILES.get_mut() {
+        return hashmap;
     }
 
     FILES.get_or_init(|| init_hashmap(SAVE_PATH));
@@ -30,40 +48,41 @@ unsafe fn get_hashmap_mut() -> &'static mut Mutex<HashMap<String, Vec<String>>> 
 }
 
 pub static mut ARCHIVES: &[&str] = &[];
-
-pub unsafe fn process_file_path(str: String) {
-    let hashmap = get_hashmap_mut().get_mut().unwrap();
+pub unsafe fn process_file_paths() {
+    let hashmap = get_hashmap_mut();
     let re = &REGEX;
-    let string = &str;
-    match re.captures(string) {
-        Some(c) => {
-            if c.len() != 3 {
-                warn!("capture len incorrect. {}\n{}", c.len(), string);
-                return;
-            }
-            let key = c[1].to_lowercase().to_string();
-            if !ARCHIVES.contains(&&key[..]) {
-                return;
-            }
-            let val = c[2].to_string();
-            match hashmap.get_mut(&key) {
-                None => {
-                    hashmap.insert(key, vec![val]);
-                    ()
+    let vec = get_vec_mut().get_mut().unwrap();
+    let strings = vec.clone();
+    vec.clear();
+    for string in strings {
+        match re.captures(&string) {
+            Some(c) => {
+                if c.len() != 3 {
+                    warn!("capture len incorrect. {}\n{}", c.len(), string);
+                    return;
                 }
-                Some(v) => v.push(val),
+                let key = c[1].to_lowercase().to_string();
+                if !ARCHIVES.contains(&&key[..]) {
+                    return;
+                }
+                let val = c[2].to_string();
+                match hashmap.get_mut(&key) {
+                    None => {
+                        hashmap.insert(key, vec![val]);
+                        ()
+                    }
+                    Some(v) => v.push(val),
+                }
             }
-            #[cfg(feature = "Console")]
-            println!("{str}");
-        }
-        None => {
-            warn!("Failed to match: {str}");
-            return;
-        }
-    };
+            None => {
+                warn!("Failed to match: {string}");
+                return;
+            }
+        };
+    }
 }
 
-pub unsafe fn init_hashmap(path: &str) -> Mutex<HashMap<String, Vec<String>>> {
+pub unsafe fn init_hashmap(path: &str) -> HashMap<String, Vec<String>> {
     let mut hashmap: HashMap<String, Vec<String>> = HashMap::new();
 
     match fs::read_to_string(path) {
@@ -82,11 +101,11 @@ pub unsafe fn init_hashmap(path: &str) -> Mutex<HashMap<String, Vec<String>>> {
         Err(e) => warn!("file list not found: {e}"),
     };
 
-    return Mutex::new(hashmap);
+    return hashmap;
 }
 
 pub unsafe fn merge_dicts(path: &str) {
-    let mut hashmap = FILES.get_mut().unwrap().get_mut().unwrap();
+    let hashmap = FILES.get_mut().unwrap();
 
     match fs::read_to_string(path) {
         Ok(f) => {
@@ -123,8 +142,8 @@ pub unsafe fn save_dump() {
 
     fs::create_dir_all(folder_path).expect(&format!("Could not create path {folder_path:?}"));
 
-    let mut hashmap = match FILES.get() {
-        Some(h) => h.lock().unwrap(),
+    let mut hashmap = match FILES.get_mut() {
+        Some(h) => h,
         None => return,
     };
     let mut string = String::new();
