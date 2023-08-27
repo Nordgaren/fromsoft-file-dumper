@@ -1,6 +1,5 @@
 use crate::dl_string::AllocatedDLWString;
 use crate::path_processor::add_to_vector;
-use std::thread;
 use widestring::U16CString;
 
 pub type FnGetFile = unsafe extern "C" fn(
