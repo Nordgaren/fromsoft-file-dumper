@@ -10,7 +10,10 @@ mod hooks;
 mod path_processor;
 
 use crate::config::*;
-use crate::exception_handler::{vectored_exception_handler, AddVectoredExceptionHandler_hook, RemoveVectoredExceptionHandler_hook, ADD_VECTORED_EXCEPTION_HANDLER_ORGINAL, REMOVE_VECTORED_EXCEPTION_HANDLER_ORGINAL};
+use crate::exception_handler::{
+    init_exception_handler, AddVectoredExceptionHandler_hook, RemoveVectoredExceptionHandler_hook,
+    ADD_VECTORED_EXCEPTION_HANDLER_ORGINAL, REMOVE_VECTORED_EXCEPTION_HANDLER_ORGINAL,
+};
 use crate::game_consts::*;
 use crate::hooks::{
     hash_path_hook, hash_path_two_hook, HASH_PATH_ORIGINAL, HASH_PATH_TWO_ORIGINAL,
@@ -32,7 +35,6 @@ use std::{fs, mem, thread};
 use windows::Win32::Foundation::{HMODULE, MAX_PATH};
 #[cfg(feature = "Console")]
 use windows::Win32::System::Console::{AllocConsole, AttachConsole};
-use windows::Win32::System::Diagnostics::Debug::AddVectoredExceptionHandler;
 use windows::Win32::System::LibraryLoader::{GetModuleFileNameA, GetModuleHandleA};
 use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
 
@@ -50,6 +52,7 @@ pub extern "stdcall" fn DllMain(hinstDLL: isize, dwReason: u32, lpReserved: *mut
             let path = init(hinstDLL);
             init_hooks(&path);
             init_loop();
+            init_exception_handler();
             //init_exit_callback();
             1
         },
@@ -62,6 +65,7 @@ pub extern "stdcall" fn DllMain(hinstDLL: isize, dwReason: u32, lpReserved: *mut
         _ => 0,
     }
 }
+
 unsafe fn shutdown() {
     if END.load(Ordering::Relaxed) {
         return;
@@ -164,9 +168,14 @@ unsafe fn init_hooks(name: &str) {
         )
         .build();
 
-    ADD_VECTORED_EXCEPTION_HANDLER_ORGINAL = mem::transmute(hook.get_original_func_addr_iat("AddVectoredExceptionHandler").unwrap());
-    REMOVE_VECTORED_EXCEPTION_HANDLER_ORGINAL = mem::transmute(hook.get_original_func_addr_iat("RemoveVectoredExceptionHandler").unwrap());
-    AddVectoredExceptionHandler(1, Some(vectored_exception_handler));
+    ADD_VECTORED_EXCEPTION_HANDLER_ORGINAL = mem::transmute(
+        hook.get_original_func_addr_iat("AddVectoredExceptionHandler")
+            .unwrap(),
+    );
+    REMOVE_VECTORED_EXCEPTION_HANDLER_ORGINAL = mem::transmute(
+        hook.get_original_func_addr_iat("RemoveVectoredExceptionHandler")
+            .unwrap(),
+    );
 }
 
 fn set_archives(game: Game) {

@@ -1,18 +1,11 @@
 use crate::shutdown;
 use log::warn;
-use std::cell::{Cell, OnceCell};
-use std::ffi::c_void;
-use std::mem;
-use std::process::exit;
-use std::ptr::addr_of;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock, RwLock};
-use windows::Win32::Foundation::{NTSTATUS, STATUS_ACCESS_VIOLATION};
+use std::sync::{OnceLock, RwLock};
+use windows::Win32::Foundation::NTSTATUS;
 use windows::Win32::System::Diagnostics::Debug::{
-    AddVectoredExceptionHandler, RemoveVectoredExceptionHandler, EXCEPTION_POINTERS,
-    PVECTORED_EXCEPTION_HANDLER,
+    AddVectoredExceptionHandler, EXCEPTION_POINTERS, PVECTORED_EXCEPTION_HANDLER,
 };
-use windows::Win32::System::Kernel::ExceptionContinueExecution;
 
 type FnRemoveVectoredExceptionHandler = unsafe extern "system" fn(handle: usize) -> u32;
 type FnAddVectoredExceptionHandler =
@@ -32,6 +25,10 @@ unsafe fn get_handlers_mut() -> &'static RwLock<Vec<HandlerInfo>> {
 }
 
 const EXCEPTION: NTSTATUS = NTSTATUS(0x406D1388);
+
+pub unsafe fn init_exception_handler() {
+    AddVectoredExceptionHandler(1, Some(vectored_exception_handler));
+}
 // The Handler
 pub unsafe extern "system" fn vectored_exception_handler(
     ExceptionInfo: *mut EXCEPTION_POINTERS,
