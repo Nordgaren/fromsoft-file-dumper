@@ -27,7 +27,6 @@ unsafe fn get_vec_mut() -> &'static mut Mutex<Vec<String>> {
     return STRINGS.get_mut().unwrap();
 }
 
-
 pub unsafe fn add_to_vector(string: String) {
     let vec = get_vec_mut().get_mut().unwrap();
     #[cfg(feature = "Console")]
@@ -45,24 +44,26 @@ unsafe fn get_hashmap_mut() -> &'static mut HashMap<String, Vec<String>> {
     FILES.get_or_init(|| init_hashmap(SAVE_PATH));
     return FILES.get_mut().unwrap();
 }
-
-pub static mut ARCHIVES: &[&str] = &[];
 pub unsafe fn process_file_paths() {
-    let hashmap = get_hashmap_mut();
-    let re = &REGEX;
     let vec = get_vec_mut().get_mut().unwrap();
     let strings = vec.clone();
     vec.clear();
+    save_paths_in_vector(strings);
+}
+pub static mut ARCHIVES: &[&str] = &[];
+unsafe fn save_paths_in_vector(strings: Vec<String>) {
+    let hashmap = get_hashmap_mut();
+    let re = &REGEX;
     for string in strings {
         match re.captures(&string) {
             Some(c) => {
                 if c.len() != 3 {
                     warn!("capture len incorrect. {}\n{}", c.len(), string);
-                    return;
+                    continue;
                 }
                 let key = c[1].to_lowercase().to_string();
                 if !ARCHIVES.contains(&&key[..]) {
-                    return;
+                    continue;
                 }
                 let val = c[2].to_string();
                 match hashmap.get_mut(&key) {
@@ -75,7 +76,7 @@ pub unsafe fn process_file_paths() {
             }
             None => {
                 warn!("Failed to match: {string}");
-                return;
+                continue;
             }
         };
     }
@@ -168,8 +169,8 @@ pub unsafe fn save_dump() {
 
 #[cfg(test)]
 mod tests {
+    use crate::path_processor::{init_hashmap, merge_dicts, save_dump, FILES};
     use std::fs;
-    use crate::path_processor::{init_hashmap, save_dump, FILES, merge_dicts};
 
     #[test]
     fn save_hashmap() {
@@ -185,8 +186,7 @@ mod tests {
     #[test]
     fn merge_hashmap() {
         unsafe {
-            let hashmap =
-                init_hashmap(r".\dumps\file_paths.txt");
+            let hashmap = init_hashmap(r".\dumps\file_paths.txt");
             FILES.set(hashmap).unwrap();
 
             let files = fs::read_dir(r".\dumps\new\").unwrap();

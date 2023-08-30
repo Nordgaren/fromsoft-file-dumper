@@ -28,18 +28,37 @@ pub unsafe extern "C" fn get_file_hook(
     dlw_string
 }
 
-pub type FnHashPath = unsafe extern "C" fn(param_1: usize, param_2: &AllocatedDLWString, param_3: usize, param_4: usize, param_5: usize, param_6: usize) -> usize;
+pub type FnHashPath = unsafe extern "C" fn(
+    param_1: usize,
+    param_2: &AllocatedDLWString,
+    param_3: usize,
+    param_4: usize,
+    param_5: usize,
+    param_6: usize,
+) -> usize;
 pub static mut HASH_PATH_ORIGINAL: FnHashPath = hash_path_hook;
-pub unsafe extern "C" fn hash_path_hook(param_1: usize, path: &AllocatedDLWString, param_3: usize, param_4: usize, param_5: usize, param_6: usize) -> usize {
+pub unsafe extern "C" fn hash_path_hook(
+    param_1: usize,
+    path: &AllocatedDLWString,
+    param_3: usize,
+    param_4: usize,
+    param_5: usize,
+    param_6: usize,
+) -> usize {
     let string = path.string.as_ref().to_string().unwrap();
     add_to_vector(string);
     return HASH_PATH_ORIGINAL(param_1, path, param_3, param_4, param_5, param_6);
 }
 
-pub type FnHashPathTwo = unsafe extern "C" fn(param_1: usize, param_2: *const u16, param_3: usize) -> usize;
+pub type FnHashPathTwo =
+    unsafe extern "C" fn(param_1: usize, param_2: *const u16, param_3: usize) -> usize;
 pub static mut HASH_PATH_TWO_ORIGINAL: FnHashPathTwo = hash_path_two_hook;
 
-pub unsafe extern "C" fn hash_path_two_hook(param_1: usize, path: *const u16, param_3: usize) -> usize {
+pub unsafe extern "C" fn hash_path_two_hook(
+    param_1: usize,
+    path: *const u16,
+    param_3: usize,
+) -> usize {
     let string = U16CString::from_ptr_str(path).to_string().unwrap();
     add_to_vector(string);
     return HASH_PATH_TWO_ORIGINAL(param_1, path, param_3);

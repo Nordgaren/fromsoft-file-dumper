@@ -2,35 +2,39 @@
 #![allow(non_snake_case)]
 
 mod HashableString;
+mod config;
 mod dl_string;
+mod exception_handler;
+mod game_consts;
 mod hooks;
 mod path_processor;
-mod game_consts;
-mod config;
 
-use crate::hooks::{hash_path_hook, HASH_PATH_ORIGINAL, hash_path_two_hook, HASH_PATH_TWO_ORIGINAL};
+use crate::config::*;
+use crate::game_consts::*;
+use crate::hooks::{
+    hash_path_hook, hash_path_two_hook, HASH_PATH_ORIGINAL, HASH_PATH_TWO_ORIGINAL,
+};
 use crate::path_processor::Game::{ArmoredCore6, EldenRing};
-use crate::path_processor::{save_dump, Game, ARCHIVES, process_file_paths};
+use crate::path_processor::{save_dump, process_file_paths, Game, ARCHIVES};
 use fisherman::hook::builder::HookBuilder;
 use fisherman::scanner::signature::Signature;
 use fisherman::scanner::simple_scanner::SimpleScanner;
-use fisherman::util::{get_module_slice, get_relative_pointer};
+use fisherman::util::get_module_slice;
 use log::*;
 use log4rs::append::console::ConsoleAppender;
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::*;
-use std::{fs, thread};
 use std::sync::atomic::Ordering;
+use std::{fs, thread};
 use windows::Win32::Foundation::{HMODULE, MAX_PATH};
 #[cfg(feature = "Console")]
 use windows::Win32::System::Console::{AllocConsole, AttachConsole};
+use windows::Win32::System::Diagnostics::Debug::AddVectoredExceptionHandler;
 use windows::Win32::System::LibraryLoader::{GetModuleFileNameA, GetModuleHandleA};
 use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
-use crate::config::*;
-use crate::game_consts::*;
-
+use crate::exception_handler::{AddVectoredExceptionHandler_hook, RemoveVectoredExceptionHandler_hook, vectored_exception_handler};
 
 #[no_mangle]
 #[allow(unused)]
@@ -51,26 +55,30 @@ pub extern "stdcall" fn DllMain(hinstDLL: isize, dwReason: u32, lpReserved: *mut
         },
         DLL_PROCESS_DETACH => {
             unsafe {
-                END.store(true, Ordering::Relaxed);
-                process_file_paths();
-                save_dump();
+                shutdown();
             }
             1
         }
         _ => 0,
     }
 }
+unsafe fn shutdown() {
+    if END.load(Ordering::Relaxed) {
+        return;
+    }
+    END.store(true, Ordering::Relaxed);
+    process_file_paths();
+    save_dump();
+}
 
 unsafe fn init_loop() {
-    thread::spawn(|| {
-        loop {
-            thread::sleep(SLEEP_DURATION);
-            if END.load(Ordering::Relaxed) {
-                break;
-            }
-            process_file_paths();
-            save_dump();
+    thread::spawn(|| loop {
+        thread::sleep(SLEEP_DURATION);
+        if END.load(Ordering::Relaxed) {
+            break;
         }
+        process_file_paths();
+        save_dump();
     });
 }
 
@@ -115,39 +123,48 @@ unsafe fn init(hinstDLL: isize) -> String {
 }
 
 unsafe fn init_hooks(name: &str) {
-    let mut end = name.rfind("\\");
-    if end == None {
-        end = name.rfind("/");
-    }
-
-    let i = end.expect(&format!("Could not find parent directory. {name}"));
-    let root_dir = &name[..i + 1];
-    ROOT_DIR = root_dir.to_string();
-
     let base = GetModuleHandleA(None).unwrap().0 as usize;
 
-    let game = get_game();
-
     let module_slice = get_module_slice(base);
-    let signature = get_function_signature(game);
+
+    let signature = Signature::from_ida_pattern(HASH_FILE_ONE).unwrap();
     let offset = SimpleScanner
         .scan(module_slice, &signature)
         .expect("Could not find signature.");
+    let hash_path_one = base as isize + offset as isize;
 
-    let callsite = base as isize + offset as isize;
-    let addr = get_relative_pointer(callsite, 1, 5) as *const u8 as usize;
-
-    let signature2 = Signature::from_ida_pattern("40 55 57 48 8b ec 48 83 ec 68").unwrap();
+    let signature2 = Signature::from_ida_pattern(HASH_FILE_TWO).unwrap();
     let offset2 = SimpleScanner
         .scan(module_slice, &signature2)
         .expect("Could not find signature.");
-
-    let callsite2 = base as isize + offset2 as isize;
+    let hash_path_two = base as isize + offset2 as isize;
 
     HookBuilder::new()
-        .add_inline_hook(callsite as usize, hash_path_hook as usize, &mut HASH_PATH_ORIGINAL, None)
-        .add_inline_hook(callsite2 as usize, hash_path_two_hook as usize, &mut HASH_PATH_TWO_ORIGINAL, None)
+        .add_inline_hook(
+            hash_path_one as usize,
+            hash_path_hook as usize,
+            &mut HASH_PATH_ORIGINAL,
+            None,
+        )
+        .add_inline_hook(
+            hash_path_two as usize,
+            hash_path_two_hook as usize,
+            &mut HASH_PATH_TWO_ORIGINAL,
+            None,
+        )
+        .add_iat_hook(
+            "KERNEL32.dll",
+            "AddVectoredExceptionHandler",
+            AddVectoredExceptionHandler_hook as usize,
+        )
+        .add_iat_hook(
+            "KERNEL32.dll",
+            "RemoveVectoredExceptionHandler",
+            RemoveVectoredExceptionHandler_hook as usize,
+        )
         .build();
+
+    AddVectoredExceptionHandler(1, Some(vectored_exception_handler));
 }
 
 fn set_archives(game: Game) {
@@ -169,13 +186,4 @@ fn get_game() -> Game {
     }
 
     panic!("Could not find game");
-}
-
-fn get_function_signature(game: Game) -> Signature {
-    match game {
-        EldenRing => Signature::from_ida_pattern(GET_FILE_ER_SIGNATURE)
-            .expect("Could not parse Elden Ring AoB"),
-        ArmoredCore6 => Signature::from_ida_pattern(GET_FILE_AC_SIGNATURE)
-            .expect("Could not parse Armored Core 6 AoB"),
-    }
 }
