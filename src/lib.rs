@@ -10,12 +10,13 @@ mod hooks;
 mod path_processor;
 
 use crate::config::*;
+use crate::exception_handler::{vectored_exception_handler, AddVectoredExceptionHandler_hook, RemoveVectoredExceptionHandler_hook, ADD_VECTORED_EXCEPTION_HANDLER_ORGINAL, REMOVE_VECTORED_EXCEPTION_HANDLER_ORGINAL};
 use crate::game_consts::*;
 use crate::hooks::{
     hash_path_hook, hash_path_two_hook, HASH_PATH_ORIGINAL, HASH_PATH_TWO_ORIGINAL,
 };
 use crate::path_processor::Game::{ArmoredCore6, EldenRing};
-use crate::path_processor::{save_dump, process_file_paths, Game, ARCHIVES};
+use crate::path_processor::{process_file_paths, save_dump, Game, ARCHIVES};
 use fisherman::hook::builder::HookBuilder;
 use fisherman::scanner::signature::Signature;
 use fisherman::scanner::simple_scanner::SimpleScanner;
@@ -27,14 +28,13 @@ use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::*;
 use std::sync::atomic::Ordering;
-use std::{fs, thread};
+use std::{fs, mem, thread};
 use windows::Win32::Foundation::{HMODULE, MAX_PATH};
 #[cfg(feature = "Console")]
 use windows::Win32::System::Console::{AllocConsole, AttachConsole};
 use windows::Win32::System::Diagnostics::Debug::AddVectoredExceptionHandler;
 use windows::Win32::System::LibraryLoader::{GetModuleFileNameA, GetModuleHandleA};
 use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
-use crate::exception_handler::{AddVectoredExceptionHandler_hook, RemoveVectoredExceptionHandler_hook, vectored_exception_handler};
 
 #[no_mangle]
 #[allow(unused)]
@@ -139,7 +139,7 @@ unsafe fn init_hooks(name: &str) {
         .expect("Could not find signature.");
     let hash_path_two = base as isize + offset2 as isize;
 
-    HookBuilder::new()
+    let hook = HookBuilder::new()
         .add_inline_hook(
             hash_path_one as usize,
             hash_path_hook as usize,
@@ -164,6 +164,8 @@ unsafe fn init_hooks(name: &str) {
         )
         .build();
 
+    ADD_VECTORED_EXCEPTION_HANDLER_ORGINAL = mem::transmute(hook.get_original_func_addr_iat("AddVectoredExceptionHandler").unwrap());
+    REMOVE_VECTORED_EXCEPTION_HANDLER_ORGINAL = mem::transmute(hook.get_original_func_addr_iat("RemoveVectoredExceptionHandler").unwrap());
     AddVectoredExceptionHandler(1, Some(vectored_exception_handler));
 }
 

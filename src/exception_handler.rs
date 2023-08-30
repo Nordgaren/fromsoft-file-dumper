@@ -1,23 +1,23 @@
+use crate::shutdown;
 use log::warn;
 use std::cell::{Cell, OnceCell};
 use std::ffi::c_void;
 use std::mem;
 use std::process::exit;
 use std::ptr::addr_of;
-use std::sync::{Mutex, OnceLock, RwLock};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock, RwLock};
 use windows::Win32::Foundation::{NTSTATUS, STATUS_ACCESS_VIOLATION};
 use windows::Win32::System::Diagnostics::Debug::{
     AddVectoredExceptionHandler, RemoveVectoredExceptionHandler, EXCEPTION_POINTERS,
     PVECTORED_EXCEPTION_HANDLER,
 };
 use windows::Win32::System::Kernel::ExceptionContinueExecution;
-use crate::shutdown;
 
-// thread_local! {
-//     static GAME_HANDLER: Cell<PVECTORED_EXCEPTION_HANDLER> = Cell::new(None);
-//     static VEH_HANDLE: Cell<Option<*mut c_void>> = Cell::new(None);
-// }
+type FnRemoveVectoredExceptionHandler = unsafe extern "system" fn(handle: usize) -> u32;
+type FnAddVectoredExceptionHandler =
+    unsafe extern "system" fn(first: u32, handler: PVECTORED_EXCEPTION_HANDLER) -> usize;
+
 #[derive(Debug)]
 struct HandlerInfo {
     handle: usize,
@@ -27,13 +27,8 @@ struct HandlerInfo {
 static mut HANDLE: AtomicUsize = AtomicUsize::new(10000);
 static mut HANDLERS: OnceLock<RwLock<Vec<HandlerInfo>>> = OnceLock::new();
 
-unsafe fn get_handlers_mut() -> &'static mut RwLock<Vec<HandlerInfo>> {
-    if let Some(vec) = HANDLERS.get_mut() {
-        return vec;
-    }
-
-    HANDLERS.get_or_init(|| RwLock::new(vec![]));
-    return HANDLERS.get_mut().unwrap();
+unsafe fn get_handlers_mut() -> &'static RwLock<Vec<HandlerInfo>> {
+    return HANDLERS.get_or_init(|| RwLock::new(vec![]));
 }
 
 const EXCEPTION: NTSTATUS = NTSTATUS(0x406D1388);
@@ -41,7 +36,6 @@ const EXCEPTION: NTSTATUS = NTSTATUS(0x406D1388);
 pub unsafe extern "system" fn vectored_exception_handler(
     ExceptionInfo: *mut EXCEPTION_POINTERS,
 ) -> i32 {
-
     let mut handlers = get_handlers_mut().read().unwrap();
     for handler in handlers.iter() {
         let fun = handler.handler;
@@ -53,7 +47,7 @@ pub unsafe extern "system" fn vectored_exception_handler(
         }
     }
 
-    let reason =(*(*ExceptionInfo).ExceptionRecord).ExceptionCode;
+    let reason = (*(*ExceptionInfo).ExceptionRecord).ExceptionCode;
     if reason != EXCEPTION {
         warn!("Shutting down with reason {:X}", reason.0);
         shutdown();
@@ -62,12 +56,14 @@ pub unsafe extern "system" fn vectored_exception_handler(
 
     0
 }
+pub static mut ADD_VECTORED_EXCEPTION_HANDLER_ORGINAL: FnAddVectoredExceptionHandler =
+    AddVectoredExceptionHandler_hook;
 
 pub unsafe extern "system" fn AddVectoredExceptionHandler_hook(
     first: u32,
     handler: PVECTORED_EXCEPTION_HANDLER,
 ) -> usize {
-    let mut handlers = get_handlers_mut().get_mut().unwrap();
+    let mut handlers = get_handlers_mut().write().unwrap();
     let handle = HANDLE.fetch_add(1, Ordering::Relaxed);
 
     let info = HandlerInfo { handle, handler };
@@ -80,19 +76,19 @@ pub unsafe extern "system" fn AddVectoredExceptionHandler_hook(
     handle
 }
 
-pub unsafe extern "system" fn RemoveVectoredExceptionHandler_hook(handle: usize) -> u32 {
+pub static mut REMOVE_VECTORED_EXCEPTION_HANDLER_ORGINAL: FnRemoveVectoredExceptionHandler =
+    RemoveVectoredExceptionHandler_hook;
 
-    let mut handlers = get_handlers_mut()
-        .write()
-        .unwrap();
+pub unsafe extern "system" fn RemoveVectoredExceptionHandler_hook(handle: usize) -> u32 {
+    let mut handlers = get_handlers_mut().write().unwrap();
 
     match handlers.iter().position(|e| e.handle == handle) {
         Some(position) => {
             handlers.remove(position);
             return 0x1;
-        },
+        }
 
         // Call the original to prevent messing with stuff that was registered before we hooked
-        None => return RemoveVectoredExceptionHandler(handle as *const c_void),
+        None => return REMOVE_VECTORED_EXCEPTION_HANDLER_ORGINAL(handle),
     }
 }
